@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { display: flex; flex-direction: column; align-items: center; }
+        .result { margin-bottom: 20px; text-align: center; }
+        .image { margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Results</h1>
+
+        <div class="result">
+            <h2>Sharpe Ratio</h2>
+            <p>{{ sharpe_ratio }}</p>
+        </div>
+
+        <div class="result">
+            <h2>Turnover Rate</h2>
+            <p>{{ turnover_rate }}</p>
+        </div>
+
+        <div class="result">
+            <h2>Bond Weights Over Time</h2>
+            <div class="image">
+                <img src="data:image/png;base64,{{ bond_weights_img }}" alt="Bond Weights Over Time">
+            </div>
+        </div>
+
+        <div class="result">
+            <h2>Wealth Evolution</h2>
+            <div class="image">
+                <img src="data:image/png;base64,{{ wealth_evolution_img }}" alt="Wealth Evolution">
+            </div>
+        </div>
+    </div>
+</body>
+</html>
