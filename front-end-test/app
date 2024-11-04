@@ -1,0 +1,220 @@
+from flask import Flask, request, render_template, jsonify
+import pandas as pd
+from models.cvar import CVaR_optimization
+from models.mvo import mvo_optimize
+from models.risk_parity import risk_parity
+import numpy as np
+from scipy.stats import gmean
+import matplotlib.pyplot as plt
+import io
+import base64
+pd.options.mode.chained_assignment = None  # default='warn'
+
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'  # Folder to save uploaded CSV files
+
+# List of available optimization models
+optimization_models = ["MVO", "Risk Parity", "cVar"]
+
+@app.route('/')
+def index():
+    return render_template('index.html', models=optimization_models)
+
+@app.route('/run', methods=['POST'])
+def run_code():
+    # Get model choice, number of constraints, and file from the form
+    model = request.form.get('model')
+    num_constraints = int(request.form.get('num_constraints'))
+    constraints = [request.form.get(f'constraint_{i}') for i in range(num_constraints)] if num_constraints > 0 else []
+
+    # Handle the CSV file upload
+    file = request.files['file']
+    if file:
+        data = pd.read_csv(file)
+
+    # Parse constraints (example: "x + y <= 10")
+    parsed_constraints = parse_constraints(constraints, data)
+
+    # Run the optimization based on the model and constraints
+    result = optimize(data, model, parsed_constraints)
+
+    sharpe_ratio = result.get('sharpe_ratio')
+    turnover_rate = result.get('average_turnover')
+    bond_weights = result.get('weights')
+    wealth_evolution = result.get('wealth_evolution')
+    c = 0
+    for list in bond_weights:
+        for element in list:
+            if element != 0:
+                c = c + 1
+                
+                
+    print(c)
+
+    print(sharpe_ratio)
+    print(turnover_rate)
+    #print(bond_weights)
+    print(wealth_evolution)
+
+    # Check for None and assign default values
+    sharpe_ratio = sharpe_ratio if sharpe_ratio is not None else 0.0
+    turnover_rate = turnover_rate if turnover_rate is not None else 0.0
+    bond_weights = bond_weights if bond_weights is not None else []
+    wealth_evolution = wealth_evolution if wealth_evolution is not None else []
+
+    # Generate images, ensuring there is data
+    bond_weights_img = ""
+    wealth_evolution_img = ""
+    if bond_weights:
+        # Plot bond weights over time
+        plt.figure()
+        plt.plot(bond_weights, label='Bond Weights')
+        plt.xlabel('Time')
+        plt.ylabel('Bond Weights')
+        plt.legend()
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        bond_weights_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+        plt.close()
+
+    if wealth_evolution:
+        # Plot wealth evolution
+        plt.figure()
+        plt.plot(wealth_evolution, label='Wealth Evolution')
+        plt.xlabel('Time')
+        plt.ylabel('Wealth')
+        plt.legend()
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        wealth_evolution_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+        plt.close()
+
+    # Check for missing images and set defaults if necessary
+    bond_weights_img = bond_weights_img if bond_weights_img else ""
+    wealth_evolution_img = wealth_evolution_img if wealth_evolution_img else ""
+
+    return render_template(
+        'results.html',
+        sharpe_ratio=sharpe_ratio,
+        turnover_rate=turnover_rate,
+        bond_weights_img=bond_weights_img,
+        wealth_evolution_img=wealth_evolution_img
+    )
+import re
+
+def parse_constraints(constraints, data):
+    """
+    Parse constraint strings into a list of dictionaries with 'column', 'operator', and 'value'.
+    Assumes each constraint is in the form: "column operator value" (e.g., "OAS <= 1.5").
+    """
+    parsed_constraints = []
+    standard_columns = {"expected_return", "OAS", "sector", "duration", "liquidity_score"}
+    additional_columns = set(data.columns) - standard_columns  # Capture additional columns
+
+    for constraint in constraints:
+        # Match column name, operator, and value
+        match = re.match(r'([a-zA-Z_]+)\s*(<=|>=|=|<|>)\s*([0-9.]+)', constraint)
+        
+        if match:
+            column, operator, value = match.groups()
+            
+            # Validate that the column exists in the data
+            if column in standard_columns or column in additional_columns:
+                parsed_constraints.append({
+                    'column': column,
+                    'operator': operator,
+                    'value': float(value)  # Convert the value to a float
+                })
+            else:
+                print(f"Warning: Ignoring constraint '{constraint}' as it references undefined columns.")
+        else:
+            print(f"Warning: Invalid constraint format '{constraint}'.")
+    print(parsed_constraints)
+    return parsed_constraints
+
+
+def optimize(data, model, constraints):
+    # Check if model is valid and call the corresponding optimization function
+    data['Date'] = pd.to_datetime(data['Date'])
+
+    initialVal = 100000  
+    investPeriod = 1
+    tickers = data['ISIN'].unique()
+    dates = data['Date'].unique()
+
+    n = len(tickers)
+    NoPeriods = len(dates) // investPeriod  
+    x = np.zeros([n, NoPeriods])
+    x0 = np.zeros([n, NoPeriods])
+
+    # Track portfolio value and turnover
+    currentVal = np.zeros([NoPeriods + 1, 1])
+    currentVal[0] = initialVal
+    portfolio_returns = np.zeros(NoPeriods)
+    turnover = np.zeros([NoPeriods, 1])
+
+    rf = 0.02 / 365
+
+    # Iterate through investment periods
+    for period in range(NoPeriods):
+        # Select bonds available during this period
+        current_bonds = data[data['Date'] == dates[period * investPeriod]]
+
+        if model == "MVO":
+            weights = mvo_optimize(current_bonds, x0, constraints)
+        elif model == "Risk Parity":
+            weights = risk_parity(current_bonds, x0, constraints)
+        elif model == "cVar":
+            weights = CVaR_optimization(current_bonds, 0.05, constraints)
+        else:
+            print("Invalid model selected.")
+        
+        # Store weights
+        x[:, period] = weights
+        
+        # Calculate expected portfolio return and risk based on the bonds
+        # Check if weights is None or contains None values
+        if weights is None or any(w is None for w in weights):
+            print("Optimization did not return valid weights.")
+            break
+        else:
+            portfolio_return = np.sum(np.array(weights) * current_bonds['expected_return'])
+            print("Portfolio Return:", portfolio_return)
+        
+        # Simulate the portfolio value evolution
+        currentVal[period + 1] = currentVal[period] * (1 + portfolio_return)
+        
+        portfolio_returns[period] = portfolio_return
+
+        # Calculate turnover (assume full rebalance between periods)
+        turnover[period] = np.sum(np.abs(weights - x0[:, period])) / 2
+        x0[:, period] = weights
+
+
+    print(x)
+    excess_returns = portfolio_returns - rf
+
+    #print(excess_returns.shape)
+    SR = (gmean(excess_returns + 1) - 1)/excess_returns.std()
+
+    avgTurnover = np.mean(turnover[1:])
+    print('Sharpe ratio: ', str(SR))
+    print('Avg. turnover: ', str(avgTurnover))
+
+    return {
+        'sharpe_ratio': SR,
+        'average_turnover': avgTurnover,
+        'weights': x.tolist(),  # Convert entire weights array to a list
+        'wealth_evolution': currentVal.flatten().tolist()  # Convert wealth evolution to list
+    }
+    
+
+if __name__ == '__main__':
+    app.run(debug=True)
