@@ -3,6 +3,7 @@ import pandas as pd
 from models.cvar import CVaR_optimization
 from models.mvo import mvo_optimize
 from models.risk_parity import risk_parity
+from models.mip import mixed_integer_programming
 import numpy as np
 from scipy.stats import gmean
 import matplotlib.pyplot as plt
@@ -35,39 +36,20 @@ def run_code():
 
     # Parse constraints (example: "x + y <= 10")
     parsed_constraints = parse_constraints(constraints, data)
-
-    # Run the optimization based on the model and constraints
     result = optimize(data, model, parsed_constraints)
 
-    sharpe_ratio = result.get('sharpe_ratio')
-    turnover_rate = result.get('average_turnover')
-    bond_weights = result.get('weights')
-    wealth_evolution = result.get('wealth_evolution')
-    c = 0
-    for list in bond_weights:
-        for element in list:
-            if element != 0:
-                c = c + 1
-                
-                
-    print(c)
+    # Run the optimization based on the model and constraints
+    sharpe_ratio = result.get('sharpe_ratio', 0.0)
+    turnover_rate = result.get('average_turnover', 0.0)
+    bond_weights = result.get('weights', [])
+    wealth_evolution = result.get('wealth_evolution', [])
 
-    print(sharpe_ratio)
-    print(turnover_rate)
-    #print(bond_weights)
-    print(wealth_evolution)
-
-    # Check for None and assign default values
-    sharpe_ratio = sharpe_ratio if sharpe_ratio is not None else 0.0
-    turnover_rate = turnover_rate if turnover_rate is not None else 0.0
-    bond_weights = bond_weights if bond_weights is not None else []
-    wealth_evolution = wealth_evolution if wealth_evolution is not None else []
-
-    # Generate images, ensuring there is data
+    # Initialize image variables as empty strings
     bond_weights_img = ""
     wealth_evolution_img = ""
+
     if bond_weights:
-        # Plot bond weights over time
+        # Create a plot for bond weights
         plt.figure()
         plt.plot(bond_weights, label='Bond Weights')
         plt.xlabel('Time')
@@ -75,14 +57,17 @@ def run_code():
         plt.legend()
         plt.tight_layout()
 
+        # Save the plot to a buffer
         buf = io.BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
         bond_weights_img = base64.b64encode(buf.getvalue()).decode("utf-8")
         plt.close()
 
+        
+
     if wealth_evolution:
-        # Plot wealth evolution
+        # Create a plot for wealth evolution
         plt.figure()
         plt.plot(wealth_evolution, label='Wealth Evolution')
         plt.xlabel('Time')
@@ -90,16 +75,14 @@ def run_code():
         plt.legend()
         plt.tight_layout()
 
+        # Save the plot to a buffer
         buf = io.BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
         wealth_evolution_img = base64.b64encode(buf.getvalue()).decode("utf-8")
         plt.close()
 
-    # Check for missing images and set defaults if necessary
-    bond_weights_img = bond_weights_img if bond_weights_img else ""
-    wealth_evolution_img = wealth_evolution_img if wealth_evolution_img else ""
-
+    # Render template with data
     return render_template(
         'results.html',
         sharpe_ratio=sharpe_ratio,
@@ -173,6 +156,8 @@ def optimize(data, model, constraints):
             weights = risk_parity(current_bonds, x0, constraints)
         elif model == "cVar":
             weights = CVaR_optimization(current_bonds, 0.05, constraints)
+        elif model == "MIP":
+            weights = mixed_integer_programming(current_bonds, x0, constraints)
         else:
             print("Invalid model selected.")
         
