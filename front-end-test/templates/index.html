@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimization Input</title>
+    <script>
+        function updateConstraintFields() {
+            const numConstraints = document.getElementById('num_constraints').value;
+            const constraintFields = document.getElementById('constraintFields');
+            constraintFields.innerHTML = ''; // Clear existing fields
+
+            for (let i = 0; i < numConstraints; i++) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.name = `constraint_${i}`;
+                input.placeholder = 'Enter constraint (e.g., OAS <= 1.5)';
+                constraintFields.appendChild(input);
+                constraintFields.appendChild(document.createElement('br'));
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>Portfolio Optimization</h1>
+    <form action="/run" method="post" enctype="multipart/form-data">
+        <label for="model">Select Optimization Model:</label>
+        <select id="model" name="model">
+            {% for model in models %}
+            <option value="{{ model }}">{{ model }}</option>
+            {% endfor %}
+        </select><br><br>
+
+        <label for="num_constraints">Number of Additional Constraints:</label>
+        <input type="number" id="num_constraints" name="num_constraints" min="0" value="0" onchange="updateConstraintFields()"><br><br>
+
+        <div id="constraintFields"></div>
+
+        <label for="file">Upload CSV File:</label>
+        <input type="file" id="file" name="file" required><br><br>
+
+        <input type="submit" value="Run Optimization">
+    </form>
+</body>
+</html>
