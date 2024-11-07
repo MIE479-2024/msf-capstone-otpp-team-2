@@ -38,18 +38,22 @@ def risk_parity(bond_data, original_weights):
     # Constraints
 
     # 1. OAS risk constraints: within 10% of benchmark OAS
-    benchmark_OAS = 274.88
+    OAS_values = bond_data['OAS'].values  
+    benchmark_OAS = sum(OAS_values[i] * w[i] for i in range(len(OAS_values)))
+
     lower_bound = 0.9 * benchmark_OAS
     upper_bound = 1.1 * benchmark_OAS
     model.addConstr(gp.quicksum(bond_data.loc[i, 'OAS'] * w[i] for i in range(N)) >= lower_bound, "MinOAS")
     model.addConstr(gp.quicksum(bond_data.loc[i, 'OAS'] * w[i] for i in range(N)) <= upper_bound, "MaxOAS")
 
     # 2. Liquidity constraint: portfolio liquidity must be at least 90% of benchmark liquidity (with relaxation)
-    Liquidity = gp.quicksum(bond_data.loc[i, 'liquidity_score'] * BenchmarkWeight for i in range(N))
-    MinLiquidity = 0.9 * Liquidity
-    model.addConstr(gp.quicksum(bond_data.loc[i, 'liquidity_score'] * w[i] for i in range(N)) >= MinLiquidity -
-                     slack_liquidity, "MinLiquidity")
+    liquidity_value = bond_data['liquidity_score'].values  
+    Liquidity = sum(liquidity_value[i] * w[i] for i in range(len(liquidity_value)))
 
+    MinLiquidity = 0.9 * Liquidity
+    model.addConstr(gp.quicksum(bond_data.loc[i, 'liquidity_score'] * w[i] for i in range(N)) >= MinLiquidity -         
+    slack_liquidity, "MinLiquidity")
+    
     # 3. Transaction cost constraint: within 10% of benchmark transaction cost (with relaxation)
     Benchmark_cost = gp.quicksum(bond_data.loc[i, 'transaction_cost'] * BenchmarkWeight for i in range(N))
     lower_t_cost = 0.9 * Benchmark_cost
