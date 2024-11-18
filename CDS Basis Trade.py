@@ -1,6 +1,3 @@
-import pandas as pd
-import numpy as np
-
 # Load the data
 data = pd.read_csv(r"E:\4F\Capstone\bonds_w_exp_returns (1).csv")
 
@@ -33,10 +30,10 @@ def basis_trading(row):
     if row['AccruedInterest'] >= row['trade_profit']:
         return 'Hold'
     elif row['cds_bond_basis'] > threshold and row['AccruedInterest'] < row['trade_profit']:
-        # Long the bond, Short the CDS (CDS overvalued relative to bond)
+    # Short the bond, Long the CDS (Bond overvalued relative to CDS)
         return 'Buy Bond, Sell CDS'
-    elif row['cds_bond_basis'] < -threshold and row['AccruedInterest'] < row['trade_profit']:
-        # Short the bond, Long the CDS (Bond overvalued relative to CDS)
+    elif row['cds_bond_basis'] > -threshold and row['AccruedInterest'] < row['trade_profit']:
+    # Long the bond, short the CDS (CDS overvalued relative to bond)
         return 'Sell Bond, Buy CDS'
     else:
         return 'Hold'
@@ -48,4 +45,3 @@ df.reset_index(inplace=True)
 df_filtered = df[df['trade_signal'] != 'Hold']
 
 print(df_filtered[['SecurityId', 'Date','trade_signal', 'trade_profit']])
-
