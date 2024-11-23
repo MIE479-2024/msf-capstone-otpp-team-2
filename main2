@@ -40,8 +40,11 @@ portfolio_returns = np.zeros(NoPeriods)
 turnover = np.zeros([NoPeriods, 1])
 transaction_costs = np.zeros([NoPeriods, 1])
 
+start_date = pd.Timestamp('2025-01-01')  
+end_date = pd.Timestamp('2025-06-18')    
+historical_data = data[(data['Date'] > start_date) & (data['Date'] <= end_date)]
+historical_returns = historical_data['ExpectedReturn']
 
-# Iterate through investment periods
 # Iterate through investment periods
 for period in range(NoPeriods):
     # Determine the current date
@@ -63,13 +66,15 @@ for period in range(NoPeriods):
     elif model == "Risk Parity":
         weights = risk_parity(current_bonds, x0, constraints)
     elif model == "cVaR":
-        weights = CVaR_optimization(current_bonds, 0.95, 10, constraints)
+        weights = CVaR_optimization(historical_returns, 0.95, 10, constraints)
     else:
         print("Invalid model selected.")
         continue
     
+    #print(current_bonds)
+    #weights = np.ones(len(current_bonds)) / len(current_bonds)
     # Store weights
-    if weights== None:
+    if weights.all() == None:
         print("model returned nothing")
     
     x[:, period] = weights
