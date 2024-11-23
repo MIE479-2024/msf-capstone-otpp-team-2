@@ -81,7 +81,7 @@ for period in range(NoPeriods):
     
     # Portfolio calculations (as in your original code)
     portfolio_return = np.sum(weights * current_bonds['ExpectedReturn'])
-    currentVal[period + 1] = currentVal[period] * (1 + portfolio_return)
+    currentVal[period + 1] = currentVal[period] + portfolio_return
     portfolio_returns[period] = portfolio_return
 
     # Turnover and transaction costs (as in your original code)
