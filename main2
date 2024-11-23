@@ -8,45 +8,6 @@ import sympy as sp
 
 pd.set_option('mode.chained_assignment', None)
 
-def calculate_historical_metrics(data, current_date, lookback_period=126):
-    """
-    Calculate historical metrics (expected returns, volatility) for bonds.
-
-    Args:
-        data (pd.DataFrame): DataFrame with bond data containing ['Date', 'SecurityId', 'DirtyPrice'].
-        current_date (datetime): The current date for the investment period.
-        lookback_period (int): Number of days to use for historical metrics.
-
-    Returns:
-        pd.DataFrame: DataFrame with 'SecurityId', 'ExpectedReturn', and 'StdDev'.
-    """
-    # Filter historical data within the lookback period
-    start_date = current_date - pd.Timedelta(days=lookback_period)
-    historical_data = data[(data['Date'] > start_date) & (data['Date'] <= current_date)]
-    print(f"historical data: \n{historical_data}")
-
-    metrics = []
-    for security_id in historical_data['SecurityId'].unique():
-        bond_data = historical_data[historical_data['SecurityId'] == security_id]
-        
-        # Calculate returns from DirtyPrice
-        returns = bond_data['DirtyPrice'].pct_change().dropna()
-        if len(returns) > 0:  # Ensure there are sufficient returns to calculate metrics
-            expected_return = returns.mean()
-            std_dev = returns.std()
-        else:
-            expected_return = np.nan
-            std_dev = np.nan
-        
-        metrics.append({
-            'SecurityId': security_id,
-            'HistoricalReturn': expected_return,
-            'HistoricalStdDev': std_dev
-        })
-    
-    return pd.DataFrame(metrics)
-
-
 
 data = pd.read_csv('bonds_w_exp_returns.csv')
 # Check if model is valid and call the corresponding optimization function
@@ -79,23 +40,18 @@ portfolio_returns = np.zeros(NoPeriods)
 turnover = np.zeros([NoPeriods, 1])
 transaction_costs = np.zeros([NoPeriods, 1])
 
-rf = 0.02 / 365
 
 # Iterate through investment periods
 # Iterate through investment periods
-for period in range(NoPeriods-126):
+for period in range(NoPeriods):
     # Determine the current date
 
-    period = period + 126
     current_date = dates[period * investPeriod]
     
-    # Calculate historical metrics
-    historical_metrics = calculate_historical_metrics(data, current_date)
     
     # Merge metrics with current bond data
     current_bonds = data[data['Date'] == current_date]
-    current_bonds = current_bonds.merge(historical_metrics, on='SecurityId')
-    print(current_bonds)
+    
     # Check if there are enough data points to proceed
     if current_bonds.empty or current_bonds['ExpectedReturn'].isnull().any().any() or current_bonds['StdDev'].isnull().any().any():
         print(f"Skipping period {period}: insufficient historical data.")
@@ -134,7 +90,7 @@ for period in range(NoPeriods-126):
 
 
 
-excess_returns = portfolio_returns - rf
+excess_returns = portfolio_returns
 
 # Calculate Sharpe ratio
 SR = (gmean(excess_returns + 1) - 1) / excess_returns.std()
