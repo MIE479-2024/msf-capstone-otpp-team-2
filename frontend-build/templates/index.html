@@ -109,6 +109,8 @@
                     <option value="MVO">MVO</option>
                     <option value="Risk Parity">Risk Parity</option>
                     <option value="cVaR">cVaR</option>
+                    <option value="MIP">MIP</option>
+                    
                 </select>
             </div>
 
@@ -228,6 +230,33 @@
 
                 ]
             },
+            "MIP": {
+                objective: "\\sum_{i=1}^{N}(r_iw_i-t_ix_i) - \\lambda_1 \\sum_{i=1}^N OAS_iw_i - \\lambda_2 \\sum_{i=1}^N DTS_iw_i	",
+                constraints: [
+                    
+                    "1. \\( \\sum_{i=1}^{N} x_i = 1 \\) ",
+                    "2. \\( | (x_i - b_i) | \\leq \\) max deviation from benchmark",
+                    "3. \\( \\sum_{i=1}^{N}| (x_i - b_i)OAS_i | \\leq \\) max deviation from benchmark OAS",
+                    "4. \\( \\sum_{i=1}^{N} x_iR_i \\geq \\) target return" ,
+                    "5. \\( x_i \\geq \\) 0",
+                    "6. \\( \\sum_{i=1}^{N}| (x_i - x_{i,0}) | \\leq \\) max change in portfolio weight",
+                    "7. \\( \\sum_{i=1}^{N}| (x_i - b_i)Duration_i | \\leq \\) max deviation from benchmark duration",
+                    "8. \\( \\sum_{i=1}^{N}| (x_i - b_{i,0})Price_i | \\geq \\) minimum trade size",
+                    "9. \\( \\sum_{i=1}^{N} x_iI_{s,i} \\leq \\) max weight of portfolio in sector \\(s\\)",
+                    "10. \\( \\sum_{i=1}^{N} x_iDTS_{i} \\leq \\) max credit risk exposure",
+                    "11. \\( \\sum_{i=1}^{N} liquidity score_{i} \\geq \\) min liquidity score of portfolio",
+
+                    "where ",
+                    "\\( x_i\\): portfolio weights for asset \\(i\\)",
+                    "\\( x_{i,0}\\): portfolio weights before re-balancing ",
+                    "\\( Q:\\): the covariance matrix of the asset returns, reflecting the risk of the portfolio",
+                    "\\( R_i\\): the expected return of asset \\(i\\)",
+                    "\\( I_{s,i}\\): indicator variable of whether asset \\(i\\) is in sector \\(s\\) ",
+                    
+                    
+
+                ]
+            },
         };
 
         // Map common symbols to LaTeX equivalents
@@ -249,21 +278,17 @@
         
         // Function to update the hidden input for the objective type
         function updateObjectiveType() {
-            const modelSelect = document.getElementById('model').value;
-            const objectiveType = document.getElementById('objectiveType').value;
-            const rendered = document.getElementById('objectiveFunctionRendered');
-            const hiddenObjectiveType = document.getElementById('hiddenObjectiveType');
+        const objectiveType = document.getElementById('objectiveType').value;
+        const hiddenObjectiveFunction = document.getElementById('hiddenObjectiveFunction');
+        const rendered = document.getElementById('objectiveFunctionRendered');
 
-            hiddenObjectiveType.value = objectiveType; // Update hidden input
-
-            if (modelSelect && modelData[modelSelect]) {
-                const latexObjective = modelData[modelSelect].objective;
-                rendered.setAttribute('data-latex', latexObjective);
-                rendered.innerHTML = `\\[${objectiveType} \\; ${latexObjective}\\]`; // Include min/max in LaTeX rendering
-
-                MathJax.typesetPromise([rendered]);
-            }
+        if (rendered.getAttribute('data-latex')) {
+            const latexObjective = rendered.getAttribute('data-latex');
+            hiddenObjectiveFunction.value = `${objectiveType} ${latexObjective}`;
+            rendered.innerHTML = `\\[${objectiveType} \\; ${latexObjective}\\]`; // Include min/max in LaTeX rendering
+            MathJax.typesetPromise([rendered]);
         }
+}
 
         // Toggle editing mode for the objective function
         function toggleObjectiveFunctionEdit() {
@@ -286,6 +311,10 @@
                 editButton.style.display = 'inline-block';
                 saveButton.style.display = 'none';
             }
+            console.log("Toggling edit mode");
+            console.log(`Editor display: ${editor.style.display}`);
+            console.log(`Save Button display: ${saveButton.style.display}`);
+            
         }
 
         // Function to save changes to the objective function and update the hidden input
@@ -315,36 +344,38 @@
 
         // Update model details (objective function and pre-filled constraints)
         function updateModelDetails() {
-            const modelSelect = document.getElementById('model').value;
-            const rendered = document.getElementById('objectiveFunctionRendered');
-            const editor = document.getElementById('objectiveFunctionEditor');
-            const objectiveType = document.getElementById('objectiveType');
-            const preFilledConstraints = document.getElementById('preFilledConstraints');
+        const modelSelect = document.getElementById('model').value;
+        const rendered = document.getElementById('objectiveFunctionRendered');
+        const editor = document.getElementById('objectiveFunctionEditor');
+        const objectiveType = document.getElementById('objectiveType');
+        const preFilledConstraints = document.getElementById('preFilledConstraints');
+        const hiddenObjectiveFunction = document.getElementById('hiddenObjectiveFunction');
 
-            if (modelSelect && modelData[modelSelect]) {
-                const model = modelData[modelSelect];
-                const latex = model.objective;
+        if (modelSelect && modelData[modelSelect]) {
+            const model = modelData[modelSelect];
+            const latex = model.objective;
 
-                // Set the default type to 'min'
-                objectiveType.value = "min";
+            // Set default type and update hidden inputs
+            objectiveType.value = "min";
+            hiddenObjectiveFunction.value = `min ${latex}`;
 
-                // Set the LaTeX for rendering and editing
-                rendered.setAttribute('data-latex', latex);
-                rendered.innerHTML = `\\[${objectiveType.value} \\; ${latex}\\]`; // Include min/max in the LaTeX rendering
-                editor.value = latex;
+            // Render the objective function
+            rendered.setAttribute('data-latex', latex);
+            rendered.innerHTML = `\\[${objectiveType.value} \\; ${latex}\\]`; // Include min/max
+            editor.value = latex;
 
-                // Update constraints
-                preFilledConstraints.innerHTML = model.constraints.map(c => `<p>${c}</p>`).join('');
+            // Update constraints
+            preFilledConstraints.innerHTML = model.constraints.map(c => `<p>${c}</p>`).join('');
 
-                // Render MathJax
-                MathJax.typesetPromise([rendered, preFilledConstraints]);
-            } else {
-                rendered.setAttribute('data-latex', '');
-                rendered.innerHTML = "Select a model to view its objective function.";
-                preFilledConstraints.innerHTML = "<p>Select a model to view its constraints.</p>";
-            }
+            // Render MathJax
+            MathJax.typesetPromise([rendered, preFilledConstraints]);
+        } else {
+            hiddenObjectiveFunction.value = ""; // Clear hidden input if no model
+            rendered.setAttribute('data-latex', '');
+            rendered.innerHTML = "Select a model to view its objective function.";
+            preFilledConstraints.innerHTML = "<p>Select a model to view its constraints.</p>";
         }
-
+    }
 
         let constraintCounter = 0; // Unique ID for each constraint
 
@@ -362,7 +393,7 @@
             inputField.type = 'text';
             inputField.placeholder = 'Enter additional constraint in mathematical form';
             inputField.className = 'constraint-input';
-            inputField.oninput = () => updateConstraintPreview(inputField, constraintDiv);
+            inputField.oninput = () => updatePreview(previewDiv, inputField.value);
 
             // Create a LaTeX preview for the constraint
             const previewDiv = document.createElement('div');
@@ -389,26 +420,20 @@
             constraintCounter++;
         }
 
+        
+
         // Remove a specific constraint
         function removeConstraint(constraintDiv) {
             constraintDiv.remove();
         }
 
-        // Update the LaTeX preview for a specific constraint
-        function updateConstraintPreview(inputField, constraintDiv) {
-            const previewDiv = constraintDiv.querySelector('.constraint-preview');
-            const inputValue = inputField.value;
-
-            if (inputValue.trim() !== '') {
-                const latex = translateToLatex(inputValue);
-                previewDiv.textContent = latex;
-
-                // Render the LaTeX using MathJax
-                MathJax.typesetPromise([previewDiv]);
-            } else {
-                previewDiv.textContent = 'LaTeX preview will appear here.';
-            }
+        
+        function updatePreview(previewDiv, value) {
+            const translated = value.replace(/(\<=|\>=|<=|>=|=|\+|\-|\*|\/|\^|\(|\))/g, match => symbolMap[match] || match);
+            previewDiv.innerHTML = `\\[${translated}\\]`;
+            MathJax.typesetPromise([previewDiv]);
         }
+        
 
         // Translate user input to LaTeX
         function translateToLatex(input) {
