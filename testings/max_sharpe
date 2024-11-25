@@ -1,0 +1,89 @@
+def max_sharpe(bond_data):
+    
+    N = len(bond_data)  
+    
+    # DTS calculation 
+    bond_data['DTS'] = bond_data['ModifiedDuration'] * bond_data['spread']
+    dts = np.array(bond_data['DTS'])
+    
+    std = np.array(bond_data['StdDev'])
+    
+    # additional fields 
+    bond_data['transaction_cost'] = bond_data['BidAskSpread']
+    bond_data['OAS'] = pd.to_numeric(bond_data['spread'], errors='coerce')
+    expected_return = np.array(bond_data['ExpectedReturn'])
+
+    # Create the model
+    model = gp.Model("MaxSharpe")
+
+    # Decision variables
+    w = model.addVars(N, vtype=GRB.CONTINUOUS, lb=0, name="w")  # weights for bonds
+    
+    # # deviation from benchmark constraint
+    weights = np.array([1/N] * N)  # Creates array of 75 elements each with 1/75
+    normalized_weights = normalize_weights(weights)
+    BenchmarkWeight = normalized_weights[0]  # Since all weights are equal, can take any element
+    # deviation_limit = 0.5
+    # for i in range(N):
+    #     model.addConstr(w[i] >= (BenchmarkWeight - deviation_limit*BenchmarkWeight), f"LowerBound_{i}")
+    #     model.addConstr(w[i] <= (BenchmarkWeight + deviation_limit*BenchmarkWeight), f"UpperBound_{i}")
+
+    # sum up to 1 constraint
+    e2 = 1e-5
+    model.addConstr(gp.quicksum(w[i] for i in range(N)) >= 1 - e2 , "SumToOneLower")
+    model.addConstr(gp.quicksum(w[i] for i in range(N)) <= 1 + e2, "SumToOneUpper")
+    
+    # Variance term (denominator)
+    variance_expr = gp.quicksum(std[i] * (w[i] * w[i]) for i in range(N))
+
+    # Create auxiliary variable for variance
+    variance_var = model.addVar(name="variance")
+    # Link variance expression to variable
+    model.addQConstr(variance_var == variance_expr)
+
+    # Create auxiliary variable for std deviation (sqrt of variance)
+    std_dev = model.addVar(name="std_dev")
+    # Now we can use addGenConstrPow since we're using a variable
+    model.addGenConstrPow(variance_var, std_dev, 0.5)
+
+    # Expected return (numerator)
+    exp_return = gp.quicksum(expected_return[i] * w[i] for i in range(N))
+
+    # Fix std_dev to 1 and maximize return
+    model.addConstr(std_dev == 1)
+    model.setObjective(exp_return, GRB.MAXIMIZE)
+
+    model.Params.NonConvex = 2
+    
+
+    # OAS Constraints
+    weighted_OAS = gp.quicksum(bond_data.iloc[i]['OAS'] * w[i] for i in range(N))
+    benchmark_OAS = sum(BenchmarkWeight * bond_data.iloc[i]['OAS'] for i in range(N))  # 1% in each bond
+    lower_bound = 0.9 * benchmark_OAS
+    upper_bound = 1.1 * benchmark_OAS
+    model.addConstr(weighted_OAS >= lower_bound, name="OAS_LowerBound")
+    model.addConstr(weighted_OAS <= upper_bound, name="OAS_UpperBound")
+
+    # Liquidity Constraint
+    Liquidity = gp.quicksum(bond_data.iloc[i]['LiquidityScore'] for i in range(N)) / N
+    MinLiquidity = 0.9 * Liquidity
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['LiquidityScore'] * w[i] for i in range(N)) >= MinLiquidity, "MinLiquidity")
+
+    # Transaction Cost Constraints
+    Benchmark_cost = gp.quicksum(bond_data.iloc[i]['transaction_cost'] for i in range(N)) / N
+    lower_t_cost = 0.9 * Benchmark_cost
+    upper_t_cost = 1.1 * Benchmark_cost
+
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['transaction_cost'] * w[i] for i in range(N)) >= lower_t_cost, "MinTCost")
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['transaction_cost'] * w[i] for i in range(N)) <= upper_t_cost, "MaxTCost")
+
+    # Optimize the model
+    model.optimize()
+
+    if model.status == GRB.OPTIMAL:
+        #print("Optimal solution found. List of all weights:")
+        weights = [w[i].X for i in range(N)]  # Get the optimized weights for bonds
+        return np.array(weights)
+
+    if model.status == GRB.INFEASIBLE:
+        print("The model is infeasible.")
