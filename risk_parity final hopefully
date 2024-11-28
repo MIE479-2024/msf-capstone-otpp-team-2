@@ -1,0 +1,132 @@
+def risk_parity(bond_data, current_period):
+    # Calculate transaction cost, daily return, and DTS
+    bond_data['transaction_cost'] = bond_data['BidAskSpread']
+    bond_data['daily_return'] = bond_data['ExpectedReturn']
+    bond_data['DTS'] = bond_data['ModifiedDuration'] * bond_data['spread']
+
+    # Parameters
+    N = len(bond_data)
+
+    # Create Gurobi model
+    model = gp.Model("DynamicCorporateBondOptimization")
+
+    # Decision variables: weights (continuous)
+    w = model.addVars(N, vtype=GRB.CONTINUOUS, lb=0, name="w")
+
+    # Binary variables to enforce the weight constraint for expected return
+    z = model.addVars(N, vtype=GRB.BINARY, name="z")
+
+    # Constraint: For bonds with expected return < 0, set weight to 0
+    big_M = 1.0
+    for i in range(N):
+        model.addConstr(w[i] <= big_M * z[i], f"WeightUpperBound_{i}")
+        if bond_data.iloc[i]['daily_return'] < 0:
+            model.addConstr(z[i] == 0, f"ReturnConstraint_{i}")
+
+ # Calculate BenchmarkWeight
+    positive_returns = bond_data[bond_data['daily_return'] > 0]
+    num_positive_returns = len(positive_returns)
+    if num_positive_returns == 0:
+        raise ValueError("No securities with positive expected return.")
+    BenchmarkWeight = 1 / num_positive_returns
+
+    # Filter positive returns and update N to reflect this
+    positive_returns = bond_data[bond_data['daily_return'] > 0]
+    N_positive = len(positive_returns)  # N for optimization
+
+    # Create a dictionary to map the original index to the security id for the positive returns bonds
+    security_ids = positive_returns['SecurityId'].values
+
+    # Create another list for all security IDs in the original bond data (not just positive returns)
+    all_security_ids = bond_data['SecurityId'].values
+
+    # Objective: Minimize the difference in risk contributions
+    risk_contributions = [w[i] * bond_data.iloc[i]['DTS'] for i in range(N_positive)]
+    mean_risk_contribution = gp.quicksum(risk_contributions) / N_positive
+    abs_deviations = [model.addVar() for i in range(N_positive)]
+
+    # Constraints to ensure abs_deviations[i] >= |risk_contributions[i] - mean_risk_contribution|
+    for i in range(N_positive):
+        model.addConstr(abs_deviations[i] >= risk_contributions[i] - mean_risk_contribution)
+        model.addConstr(abs_deviations[i] >= mean_risk_contribution - risk_contributions[i])
+
+    # Objective: minimize the sum of the auxiliary absolute deviation variables
+    objective = gp.quicksum(abs_deviations[i] for i in range(N_positive))
+    model.setObjective(objective, GRB.MINIMIZE)
+
+    # Weight sum constraint: sum of weights must be 1
+    model.addConstr(gp.quicksum(w[i] for i in range(N_positive)) >= 0.99, "SumToOneLower")
+    model.addConstr(gp.quicksum(w[i] for i in range(N_positive)) <= 1, "SumToOneUpper")
+
+    # 1. OAS risk constraints: within 10% of benchmark OAS
+    benchmark_OAS = BenchmarkWeight * gp.quicksum(bond_data.iloc[i]['spread'] for i in range(N_positive))
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['spread'] * w[i] for i in range(N_positive)) >= 0.9 * benchmark_OAS, "MinOAS")
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['spread'] * w[i] for i in range(N_positive)) <= 1.1 * benchmark_OAS, "MaxOAS")
+
+    # 2. Liquidity constraint: portfolio liquidity must be at least 90% of benchmark liquidity
+    benchmark_liquidity = BenchmarkWeight * gp.quicksum(bond_data.iloc[i]['LiquidityScore'] for i in range(N_positive))
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['LiquidityScore'] * w[i] for i in range(N_positive)) >= 0.9 * benchmark_liquidity, "MinLiquidity")
+
+    # 3. Transaction cost constraint: within 10% of benchmark transaction cost
+    benchmark_cost = BenchmarkWeight * gp.quicksum(bond_data.iloc[i]['transaction_cost'] for i in range(N_positive))
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['transaction_cost'] * w[i] for i in range(N_positive)) >= 0.9 * benchmark_cost, "MinTCost")
+    model.addConstr(gp.quicksum(bond_data.iloc[i]['transaction_cost'] * w[i] for i in range(N_positive)) <= 1.1 * benchmark_cost, "MaxTCost")
+
+    # 4. Rating constraint
+    investment_grade_ratings = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-']
+
+    bond_data['is_investment_grade'] = bond_data['Rating'].apply(lambda x: 1 if x in investment_grade_ratings else 0)
+
+    investment_grade_weight = gp.quicksum(bond_data.iloc[i]['is_investment_grade'] * w[i] for i in range(N_positive))
+    model.addConstr(investment_grade_weight >= 0.6 * gp.quicksum(w[i] for i in range(N_positive)), "InvestmentGradeConstraint")
+
+
+    status = model.Status
+    if status == GRB.UNBOUNDED:
+        print("The model cannot be solved because it is unbounded")
+        sys.exit(0)
+    if status == GRB.OPTIMAL:
+        print(f"The optimal objective is {model.ObjVal:g}")
+        sys.exit(0)
+
+    # Relax the constraints to make the model feasible
+    print("The model is infeasible; relaxing the constraints")
+    orignumvars = model.NumVars
+    model.feasRelaxS(0, False, False, True)
+    model.optimize()
+    status = model.Status
+    if status in (GRB.INF_OR_UNBD, GRB.INFEASIBLE, GRB.UNBOUNDED):
+        print(
+        "The relaxed model cannot be solved \
+           because it is infeasible or unbounded"
+    )
+        sys.exit(1)
+
+    if status != GRB.OPTIMAL:
+        print(f"Optimization was stopped with status {status}")
+        sys.exit(1)
+
+    print("\nSlack values:")
+    slacks = model.getVars()[orignumvars:]
+    for sv in slacks:
+        if sv.X > 1e-6:
+            print(f"{sv.VarName} = {sv.X:g}")
+
+ # Get the weights for the bonds with positive returns
+    weights = np.array([w[i].X for i in range(N_positive)])
+
+    # Map weights to corresponding SecurityId and set the rest to 0
+    weight_map = {security_ids[i]: weights[i] for i in range(N_positive)}
+
+    # Initialize the full weight array with zeros
+    full_weights = np.zeros(N)
+
+    # Assign weights for positive return bonds using the index of the original security_ids
+    for i in range(N_positive):
+        # Find the index of the bond in the original bond_data list (all securities)
+        security_id = security_ids[i]
+        bond_idx = np.where(all_security_ids == security_id)[0][0]  # Get the index in the full list
+        full_weights[bond_idx] = weight_map[security_id]
+
+    # Return the final weights for all 75 securities
+    return full_weights
