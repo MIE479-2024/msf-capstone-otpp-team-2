@@ -41,13 +41,12 @@ def mvo_optimize(data, x0, lamba):
     #if the user chooses not to add a constraint, then set to -1
     robust = True
     dev_bench = .5
-    dev_bench_OAS = -1#np.mean(OAS) 
-    target_return = -1 #np.mean(mu)
+    dev_bench_OAS = 0.3*np.mean(OAS)
+    target_return = -1
     change_in_weight = -1 # x0 defined as function input
-    dev_bench_duration = np.mean(duration) 
-    max_credit_risk = np.mean(DTS)
-    liquidity = np.mean(liquidity_score) 
-    diversity = .4
+    dev_bench_duration = -1 
+    max_credit_risk = -1
+    liquidity = 0.9*np.mean(liquidity_score)
     
     constraint_values= {
     "Deviation from Benchmark" : dev_bench,
@@ -60,9 +59,8 @@ def mvo_optimize(data, x0, lamba):
     "Liquidity" : liquidity,
     "Benchmark OAS": np.mean(OAS),
     "Benchmark Duration": np.mean(duration),   
-    "Diversity": diversity,
     "Max Bonds Chosen": -1,
-    "Transaction Cost": -1
+    "Transaction Cost": -1#2*np.mean(transaction_cost)
     }
 
 
@@ -82,7 +80,8 @@ def mvo_optimize(data, x0, lamba):
     #ADD CONSTRAINTS
     
     #all wealth invested
-    model.addConstr(sum(weights[i] for i in range(number_of_assets)) == 1, name = "Wealth Constraint")
+    model.addConstr(gp.quicksum(weights[i] for i in range(number_of_assets)) >= 0.99, "SumToOneLower")
+    model.addConstr(gp.quicksum(weights[i] for i in range(number_of_assets)) <= 1, "SumToOneUpper")
     
     #### deviation from benchmark
     
@@ -135,10 +134,6 @@ def mvo_optimize(data, x0, lamba):
     if constraint_values["Liquidity"]>-1:
         model.addConstr(sum(weights[i]*liquidity_score[i] for i in range(number_of_assets)) >= constraint_values["Liquidity"])
         
-    #Diversity Constraint
-    if constraint_values["Diversity"] >-1:
-        for i in range(number_of_assets):
-            model.addConstr(weights[i] <= constraint_values["Diversity"])
         
     #Define is_selected Constraint
     for i in range(number_of_assets):
