@@ -5,7 +5,7 @@ import pandas as pd
 import scipy.stats as stats
 
 
-def mvo_optimize(data, x0, lamba, alpha):
+def mvo_optimize(data, x0, lamba):
     #Get the data
     mu = np.array(data["ExpectedReturn"])
     number_of_assets = len(mu)
@@ -20,6 +20,7 @@ def mvo_optimize(data, x0, lamba, alpha):
     DTS = np.array(data['ModifiedDuration'] *data['spread'])
     
     #Calculate parameters for Robustification (using a box uncertainty set)
+    alpha = 0.95
     epsilon = stats.norm.ppf((1+alpha)/2)
     # assume the std devs given represent the standard error from estimation of the mean
     # basically assuming that root(T) = 1
